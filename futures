@@ -1,0 +1,173 @@
+startdate='2023-07-01'
+dates=as.character(seq(as.Date(startdate),Sys.Date(),by=1))
+
+board='rfud'
+temp<-data.frame()
+
+for (dat in dates) {
+  for(pagenumber in seq(0,1000,by=100)) {
+    url<-paste0('https://iss.moex.com/iss/history/engines/futures/markets/forts/boards/',
+                board,
+                '/securities.csv?start=', pagenumber,
+                '&date=',dat)
+    test<-read.csv(url,sep=';',skip=1)
+    test<-head(test,-3)
+    #print(pagenumber)
+    if(nrow(test)==0) break
+    temp<-rbind(temp,test)
+  }
+}
+
+# 2 - clean data (first step)----
+l<-is.na(temp$CLOSE)
+# data.frame -> data_frame_name[rows,cols]
+dat<-temp[!l,]
+
+# 3 - get info data----
+s<-unique(dat$SECID)
+url<-'https://iss.moex.com/iss/securities/BEU4.csv'
+
+test<-read.csv(url,skip=1,sep=';',fileEncoding = 'Windows-1251')
+a<-which(test[,1]=="boards")
+test<-test[1:(a-1),c(1,3)]
+
+t<-data.frame(t(test[,2]))
+names(t)<-test[,1]
+
+for (id in s) {
+  url<-paste0('https://iss.moex.com/iss/securities/',id,'.csv')
+  
+  test<-read.csv(url,skip=1,sep=';',fileEncoding = 'Windows-1251')
+  a<-which(test[,1]=="boards") 
+  test<-test[1:(a-1),c(1,3)]
+  
+  t_<-data.frame(t(test[,2]))
+  names(t_)<-test[,1]
+  t<-merge(t,t_,all=T)
+}
+
+datinfo<-t[,c('SECID','ASSETCODE','CONTRACTNAME','GROUPTYPE','UNIT')]
+#table(datinfo$GROUPTYPE) #частотность
+
+# 4 - merge and summarize----
+dat2<-merge(dat,datinfo)
+dat2$TRADEDATE <- as.Date(dat2$TRADEDATE)
+
+summary(dat2$TRADEDATE)
+table(dat2$TRADEDATE)
+plot(table(dat2$TRADEDATE))
+
+# какой объем торгов в рублях фьючерсами был в каждый день
+dailydata<-aggregate(dat2[c('VALUE','VOLUME')],
+                     by=list(date=dat2$TRADEDATE),
+                     sum)
+plot(dailydata$date,dailydata$VALUE,type='l')
+plot(VALUE~date, dailydata,type='l')
+
+# какой объем торгов в рублях фьючерсами был в каждый месяц
+monthlydata<-aggregate(dat2[c('VALUE','VOLUME')],
+                       by=list(date=format(dat2$TRADEDATE,'%Y.%m')),
+                       sum)
+plot(VALUE~date, monthlydata,type='l')
+
+
+# какой объем торгов в рублях фьючерсами был в каждый месяц по каждому типу
+monthlydata<-aggregate(dat2[c('VALUE','VOLUME')],
+                       by=list(date=format(dat2$TRADEDATE,'%Y.%m'),
+                               type=dat2$GROUPTYPE),
+                       sum)
+plot(VALUE~date, monthlydata[monthlydata$type == 'Валюта',],type='l',
+     ylim=range(monthlydata$VALUE),lwd=3)
+abline(h=0) #горизонтальная линия
+lines(VALUE~date, monthlydata[monthlydata$type == 'Акции',],col='red',lwd=3)
+lines(VALUE~date, monthlydata[monthlydata$type == 'Индексы',],col='blue',lwd=3)
+lines(VALUE~date, monthlydata[monthlydata$type == 'Товары',],col='darkgreen',lwd=3)
+
+# 5 - дз --------------
+dat_currency<-dat2[dat2$GROUPTYPE=='Валюта',]
+
+print('Строки, в которых фьючерсы китайский юань-рубль:')
+grep('китайский юань - российский рубль',dat_currency$CONTRACTNAME)
+
+print('Строки, в которых фьючерсы доллар США-рубль:')
+grep('доллар США - российский рубль',dat_currency$CONTRACTNAME)
+
+print('Строки, в которых фьючерсы евро-рубль:')
+grep('евро - российский рубль',dat_currency$CONTRACTNAME)
+
+temp<-dat_currency[grep('евро-российский рубль',dat_currency$CONTRACTNAME),]
+
+monthlydata_currency<-aggregate(dat_currency[c('VALUE','VOLUME')],
+                                by=list(date=format(dat_currency$TRADEDATE,'%Y.%m'),
+                                        type=dat_currency$CONTRACTNAME),
+                                sum)
+plot(VALUE~date, monthlydata_currency[monthlydata_currency$type == 'Фьючерсный контракт на курс доллар США - российский рубль',],type='l',
+     ylim=range(monthlydata_currency$VALUE),lwd=3)
+abline(h=0) #горизонтальная линия
+lines(VALUE~date, monthlydata_currency[monthlydata_currency$type == 'Фьючерсный контракт на курс китайский юань – российский рубль',],col='red',lwd=3)
+lines(VALUE~date, monthlydata_currency[monthlydata_currency$type == 'Фьючерсный контракт на курс евро-российский рубль',],col='blue',lwd=3)
+
+x <- monthlydata_currency$VOLUME*monthlydata_currency$VALUE
+monthlydata_currency$ALL_TORGI <- c(x)
+all_torgi <- sum(x)
+all_torgi
+
+c <- grep('Фьючерсный контракт на курс китайский юань – российский рубль',monthlydata_currency$type)
+uan <- monthlydata_currency[c,]
+torgi_uan <- uan$VOLUME*uan$VALUE
+uan$VSETORGI <- c(torgi_uan)
+all_torgi_uan <- sum(torgi_uan)
+
+f <- grep('Фьючерсный контракт на курс доллар США - российский рубль',monthlydata_currency$type)
+dollar <- monthlydata_currency[f,]
+torgi_dollar <- dollar$VOLUME*dollar$VALUE
+dollar$VSETORGI <- c(torgi_dollar)
+all_torgi_dollar <- sum(torgi_dollar)
+
+m <- grep('Фьючерсный контракт на курс евро-российский рубль',monthlydata_currency$type)
+euro <- monthlydata_currency[m,]
+torgi_euro <- euro$VOLUME*euro$VALUE
+euro$VSETORGIEURO <- c(torgi_euro)
+all_torgi_euro <- sum(torgi_euro)
+
+d1 <- grep('2023.07',monthlydata_currency$date)
+z1 <- monthlydata_currency[d1,]
+z11 <- sum(z1$ALL_TORGI)
+
+d2 <- grep('2023.08',monthlydata_currency$date)
+z2 <- monthlydata_currency[d2,]
+z22 <- sum(z2$ALL_TORGI)
+
+d3 <- grep('2023.09',monthlydata_currency$date)
+z3 <- monthlydata_currency[d3,]
+z33 <- sum(z3$ALL_TORGI)
+
+d4 <- grep('2023.10',monthlydata_currency$date)
+z4 <- monthlydata_currency[d4,]
+z44 <- sum(z4$ALL_TORGI)
+
+d5 <- grep('2023.11',monthlydata_currency$date)
+z5 <- monthlydata_currency[d5,]
+z55 <- sum(z5$ALL_TORGI)
+
+d6 <- grep('2023.12',monthlydata_currency$date)
+z6 <- monthlydata_currency[d6,]
+z66 <- sum(z6$ALL_TORGI)
+
+uan$vsevsetorgi <- c(z11,z22,z33,z44,z55,z66)
+
+s <- euro$VSETORGI+dollar$VSETORGI+uan$VSETORGI #торги всеми валютами в каждый месяц
+uan$TORGI_TRI <- s
+uan_dolya <- uan$ALL_TORGI/uan$TORGI_TRI*100
+plot(uan$date,uan_dolya,type='l') #доля юань-рубль в общих торгах тремя валютами
+
+chto <- uan$ALL_TORGI/uan$vsevsetorgi*100
+lines(uan$date, chto)
+
+dolya_torgov_all <- all_torgi_uan/all_torgi*100
+print('Доля торгов юань-рубль в общих торгах валютами:')
+dolya_torgov_all
+
+dolya_torgov_sredi_trex <- all_torgi_uan/(all_torgi_uan+all_torgi_dollar+all_torgi_euro)*100
+print('Доля торгов юань-рубль среди трех валют:')
+dolya_torgov_sredi_trex
