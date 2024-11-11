@@ -1,0 +1,97 @@
+download.API <- function(engine,market,boardid,ticker) {
+  url <- paste0('https://iss.moex.com/iss/history/engines/',engine,
+                '/markets/',market,
+                '/boards/',boardid,
+                '/securities/',ticker,
+                '.csv?start='
+  )
+  d <- read.csv(paste0(url,0),skip=1,sep=';', fileEncoding = 'windows-1251')
+  
+  for (i in seq(100,10^4,by=100)) {
+    temp <- read.csv(paste0(url,i),skip=1,sep=';', fileEncoding = 'windows-1251')
+    if (nrow(temp)==0) {break}
+    d <- rbind(d,temp)
+  }
+  
+  d$TRADEDATE <-as.Date(d$TRADEDATE)
+  
+  tail(d$CLOSE,1)
+  d <- d[d$TRADEDATE > '2019-06-20',]
+  months(d$TRADEDATE)
+  dm <- aggregate(d[c('TRADEDATE','CLOSE')],by=list(year=format(d$TRADEDATE,'%Y, %m')),
+                  tail,1)
+  dm$CLOSE2 <- dm$CLOSE / head(dm$CLOSE,1)
+  print('Ряд цен по месяцам:',quote=FALSE)
+  print(dm$CLOSE,quote=FALSE)
+  
+  d <- d[!is.na(d$CLOSE),]
+  d$prirost <- 100*c(NA,tail(d$CLOSE,-1)/head(d$CLOSE,-1)-1)
+  srprirost <- as.numeric(summary(d$prirost)[4])
+  print('Средний прирост:',quote=FALSE)
+  print(srprirost,quote=FALSE)
+  
+  d <- d[!is.na(d$OPEN) ,] 
+  doxod <- 100*c(tail(d$CLOSE,1)/d$OPEN[1])
+  print('Доходность:',quote=FALSE)
+  print(doxod,quote=FALSE)
+  
+  
+  min_price_date <- d$TRADEDATE[which.min(d$CLOSE)]
+  print('Дата минимальной цены:',quote=FALSE)
+  print(min_price_date,quote=FALSE)
+  
+  min_price <- d$CLOSE[which.min(d$CLOSE)]
+  print('Минимальная цена:',quote=FALSE)
+  print(min_price,quote=FALSE)
+  
+  max_price_date <- d$TRADEDATE[which.max(d$CLOSE)]
+  print('Дата максимальной цены:',quote=FALSE)
+  print(max_price_date,quote=FALSE)
+  
+  max_price <- d$CLOSE[which.max(d$CLOSE)]
+  print('Максимальная цена:',quote=FALSE)
+  print(max_price,quote=FALSE)
+  
+  first_trade_date <- head(d$TRADEDATE,1)
+  print('Дата первой сделки:',quote=FALSE)
+  print(first_trade_date,quote=FALSE)
+  
+  return(d)
+} 
+
+vtb <-download.API('stock','shares','tqtf','vtba')
+gazp <- download.API('stock','shares','tqbr','gazp')
+IMOEX <- download.API('stock','index','sndx','imoex')
+
+help <- function(d) {
+  months(d$TRADEDATE)
+  dm<-aggregate(d[c('TRADEDATE','CLOSE')],
+                by=list(year=format(d$TRADEDATE,'%Y.%m')),
+                tail,1)
+  dm$CLOSE2<-dm$CLOSE/ head(dm$CLOSE,1)
+  return(dm)
+}
+
+IMOEX_help <- help(IMOEX)
+vtb_help <- help(vtb)
+gazp <- help(gazp)
+
+#date_split <- '2021-04-30'
+#vtb$CLOSE <- as.numeric(vtb$CLOSE) 
+#vtb$CLOSE[108.10:(tail(vtb$CLOSE,1))] <- 1086.80/108.10*c(vtb$CLOSE[108.10:(tail(vtb$CLOSE,1))])
+
+vtb_help$CLOSE2 <-as.numeric(vtb_help$CLOSE2)
+vtb_help$CLOSE2[24:33] <-(vtb_help$CLOSE2[23]/vtb_help$CLOSE2[24])*c(vtb_help$CLOSE2[24:33])
+print(vtb_help$CLOSE2[23:tail(vtb_help$CLOSE2,1)])
+
+plot(IMOEX_help$TRADEDATE,IMOEX_help$CLOSE2, ylim=c(0,2), type = 'l',col='red')
+lines(vtb_help$TRADEDATE,vtb_help$CLOSE2, type = 'l', col='black')
+lines(gazp$TRADEDATE,gazp$CLOSE2, type = 'l',col='purple')
+title(main = "Графики акций")
+legend(
+  "bottomleft",
+  legend = c("imoex", "vtb", "gazp"), 
+  col = c("red","black", "purple"), 
+  lty = 1,
+  cex = 0.7
+)
